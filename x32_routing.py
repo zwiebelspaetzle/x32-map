@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Behringer X32 scene file → interactive routing diagram (HTML).
 
-Usage: python3 x32_routing.py "white christmas.scn"
+Usage: python3 x32_routing.py "test_scene.scn"
 """
-import re, sys, json
+import re, sys, json, html
 from pathlib import Path
 
 
@@ -97,10 +97,10 @@ def parse_scene(path):
         (re.compile(r'^/fx/(\d+)/source$'),         'fx_src'),
     ]
 
-    lines = Path(path).read_text(encoding='utf-8', errors='replace').splitlines()
+    lines = Path(path).resolve().read_text(encoding='utf-8', errors='replace').splitlines()
     if lines:
         m = re.match(r'#[\d.]+#\s*"([^"]*)"', lines[0])
-        if m: data['scene_name'] = m.group(1)
+        if m: data['scene_name'] = html.escape(m.group(1))
 
     for line in lines[1:]:
         key, tok = tokenize(line)
@@ -112,7 +112,7 @@ def parse_scene(path):
 
             if tag == 'ch_cfg':
                 c = ch(data['channels'], int(g[0]))
-                if tok: c['name'] = tok[0].strip('"') or c['name']
+                if tok: c['name'] = html.escape(tok[0].strip('"')) or c['name']
             elif tag == 'ch_mix':
                 c = ch(data['channels'], int(g[0]))
                 if len(tok) >= 2: c['fader_on'] = tok[0]=='ON'; c['fader_db'] = parse_db(tok[1])
@@ -128,7 +128,7 @@ def parse_scene(path):
                 if tok: c['dcas'] = decode_dca_mask(tok[0])
             elif tag == 'ax_cfg':
                 c = ch(data['auxins'], int(g[0]), 'AuxIn')
-                if tok: c['name'] = tok[0].strip('"') or c['name']
+                if tok: c['name'] = html.escape(tok[0].strip('"')) or c['name']
             elif tag == 'ax_send':
                 c = ch(data['auxins'], int(g[0]), 'AuxIn'); bnum = int(g[1])
                 if len(tok) >= 2:
@@ -140,7 +140,7 @@ def parse_scene(path):
                 if tok: c['dcas'] = decode_dca_mask(tok[0])
             elif tag == 'fx_cfg':
                 c = ch(data['fxrtns'], int(g[0]), 'FXRtn')
-                if tok: c['name'] = tok[0].strip('"') or c['name']
+                if tok: c['name'] = html.escape(tok[0].strip('"')) or c['name']
             elif tag == 'fx_send':
                 c = ch(data['fxrtns'], int(g[0]), 'FXRtn'); bnum = int(g[1])
                 if len(tok) >= 2:
@@ -149,7 +149,7 @@ def parse_scene(path):
                     if db is not None: c['active'] = True
             elif tag == 'bus_cfg':
                 b = bus(int(g[0]))
-                if tok: b['name'] = tok[0].strip('"') or b['name']
+                if tok: b['name'] = html.escape(tok[0].strip('"')) or b['name']
             elif tag == 'bus_mix':
                 b = bus(int(g[0]))
                 if len(tok) >= 2: b['fader_on'] = tok[0]=='ON'; b['fader_db'] = parse_db(tok[1])
@@ -160,12 +160,12 @@ def parse_scene(path):
                     b['sends_to_matrix'][mnum] = {'enabled': tok[0]=='ON', 'db': db}
             elif tag == 'mtx_cfg':
                 mt = mtx(int(g[0]))
-                if tok: mt['name'] = tok[0].strip('"') or mt['name']
+                if tok: mt['name'] = html.escape(tok[0].strip('"')) or mt['name']
             elif tag == 'mtx_mix':
                 mt = mtx(int(g[0]))
                 if len(tok) >= 2: mt['fader_on'] = tok[0]=='ON'; mt['fader_db'] = parse_db(tok[1])
             elif tag == 'mst_cfg':
-                if tok: data['main_st']['name'] = tok[0].strip('"') or 'Main L/R'
+                if tok: data['main_st']['name'] = html.escape(tok[0].strip('"')) or 'Main L/R'
             elif tag == 'mst_mix':
                 if len(tok) >= 2:
                     data['main_st']['fader_on'] = tok[0]=='ON'
@@ -177,7 +177,7 @@ def parse_scene(path):
                     data['main_st']['sends_to_matrix'][mnum] = {'enabled': tok[0]=='ON', 'db': db}
             elif tag == 'dca_cfg':
                 d = dca(int(g[0]))
-                if tok: d['name'] = tok[0].strip('"') or d['name']
+                if tok: d['name'] = html.escape(tok[0].strip('"')) or d['name']
             elif tag == 'dca_fdr':
                 d = dca(int(g[0]))
                 if len(tok) >= 2: d['fader_on'] = tok[0]=='ON'; d['fader_db'] = parse_db(tok[1])
@@ -202,13 +202,13 @@ def parse_scene(path):
                 num = int(g[0])
                 if num not in data['fx_slots']:
                     data['fx_slots'][num] = {'type_name': '', 'source_l': '', 'source_r': ''}
-                if tok: data['fx_slots'][num]['type_name'] = tok[0]
+                if tok: data['fx_slots'][num]['type_name'] = html.escape(tok[0])
             elif tag == 'fx_src':
                 num = int(g[0])
                 if num not in data['fx_slots']:
                     data['fx_slots'][num] = {'type_name': '', 'source_l': '', 'source_r': ''}
-                if len(tok) >= 1: data['fx_slots'][num]['source_l'] = tok[0]
-                if len(tok) >= 2: data['fx_slots'][num]['source_r'] = tok[1]
+                if len(tok) >= 1: data['fx_slots'][num]['source_l'] = html.escape(tok[0])
+                if len(tok) >= 2: data['fx_slots'][num]['source_r'] = html.escape(tok[1])
             break
 
     return data
@@ -1034,9 +1034,9 @@ def main():
         print('Usage: python3 x32_routing.py <scene_file.scn>', file=sys.stderr)
         sys.exit(1)
 
-    scene_path = sys.argv[1]
-    out_path   = Path(sys.argv[2]) if len(sys.argv) > 2 else \
-                 Path(scene_path).with_suffix('.html')
+    scene_path = Path(sys.argv[1]).resolve()
+    out_path   = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else \
+                 scene_path.with_suffix('.html')
 
     print(f'Parsing {scene_path}...')
     data = parse_scene(scene_path)
