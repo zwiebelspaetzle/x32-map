@@ -49,6 +49,7 @@ def parse_scene(path):
         'buses': {}, 'matrices': {},
         'main_st': {'name': 'Main L/R', 'fader_on': True, 'fader_db': 0.0, 'sends_to_matrix': {}},
         'dcas': {}, 'outputs': {}, 'p16_outputs': {}, 'aux_outputs': {}, 'routing_in': [],
+        'fx_slots': {},   # 1-8: {type_name, source_l, source_r}
     }
 
     def ch(d, num, pfx='CH'):
@@ -92,6 +93,8 @@ def parse_scene(path):
         (re.compile(r'^/outputs/p16/(\d+)$'),       'out_p16'),
         (re.compile(r'^/outputs/aux/(\d+)$'),       'out_aux'),
         (re.compile(r'^/config/routing/IN$'),       'rt_in'),
+        (re.compile(r'^/fx/(\d+)$'),               'fx_type'),
+        (re.compile(r'^/fx/(\d+)/source$'),         'fx_src'),
     ]
 
     lines = Path(path).read_text(encoding='utf-8', errors='replace').splitlines()
@@ -195,6 +198,17 @@ def parse_scene(path):
                     data['aux_outputs'][num] = {'src_idx': int(tok[0]), 'src_type': st, 'src_label': sl}
             elif tag == 'rt_in':
                 data['routing_in'] = tok
+            elif tag == 'fx_type':
+                num = int(g[0])
+                if num not in data['fx_slots']:
+                    data['fx_slots'][num] = {'type_name': '', 'source_l': '', 'source_r': ''}
+                if tok: data['fx_slots'][num]['type_name'] = tok[0]
+            elif tag == 'fx_src':
+                num = int(g[0])
+                if num not in data['fx_slots']:
+                    data['fx_slots'][num] = {'type_name': '', 'source_l': '', 'source_r': ''}
+                if len(tok) >= 1: data['fx_slots'][num]['source_l'] = tok[0]
+                if len(tok) >= 2: data['fx_slots'][num]['source_r'] = tok[1]
             break
 
     return data
@@ -240,6 +254,24 @@ def fmt_db(db):
     if db is None: return ''
     if db > 0:     return f'+{db:.1f}'
     return f'{db:.1f}'
+
+FX_TYPE_NAMES = {
+    'HALL': 'Hall Reverb',    'ROOM': 'Room Reverb',     'PLATE': 'Plate Reverb',
+    'AMBIENCE': 'Ambience',   'COMB': 'Comb Filter',     'ALLPASS': 'Allpass',
+    'DELAY': 'Delay',         '2TAPDELAY': '2-Tap Delay', 'TRIPLEDELAY': 'Triple Delay',
+    'MODDELAY': 'Mod Delay',  'STEREOANALG': 'Stereo Analogue Delay',
+    'TREM/AUTOPAN': 'Tremolo/Autopan', 'VIBRATO': 'Vibrato', 'FLANGER': 'Flanger',
+    'CHORUS': 'Chorus',       'MODFX': 'Mod FX',          'PITCH': 'Pitch Shifter',
+    'PITCH2': 'Pitch Shifter 2', 'HARMONIZER': 'Harmonizer',
+    'DES': 'De-esser',        'DES2': 'De-esser 2',       'DENOISER': 'Noise Reducer',
+    'VRM': 'Virtual Room Mon.', 'GEQ': 'Graphic EQ',     'GEQ2': 'Stereo Graphic EQ',
+    'MULTITAP': 'Multitap Delay',
+}
+
+def decode_mix_source(src_str):
+    """'MIX13' → 13"""
+    m = re.match(r'MIX(\d+)', src_str or '')
+    return int(m.group(1)) if m else None
 
 
 # ── Matrix table ──────────────────────────────────────────────────────────────
@@ -342,31 +374,47 @@ def gen_flow_svg(data):
     outputs  = data['outputs']
     matrices = data['matrices']
 
-    CH_X, BUS_X, MTX_X, OUT_X         = 80, 400, 700, 1000
+    FX_LOOP_X                          = 30   # leftmost x for FX return arc
+    CH_X, BUS_X, MTX_X, OUT_X         = 150, 460, 760, 1060
     NODE_W_CH, NODE_W_BUS              = 140, 140
     NODE_W_MTX, NODE_W_OUT             = 130, 165
     CH_H, BUS_H, MTX_H, OUT_H         = 20, 34, 28, 22
     MTX_COLOR                          = '#5b21b6'
+    FX_COLOR                           = '#b45309'   # amber-700
 
-    # Build channel list (active only)
-    ch_items = []
+    # Build channel list (active only), with section gaps tracked
+    ch_items  = []
+    gap_before = set()   # indices where extra vertical gap is inserted
+
     for num in sorted(data['channels']):
         c = data['channels'][num]
         if c['active']:
             ch_items.append(('ch', num, c))
-    for num in sorted(data['auxins']):
-        c = data['auxins'][num]
-        if c['active']:
-            ch_items.append(('aux', num, c))
+
+    active_aux = [num for num in sorted(data['auxins']) if data['auxins'][num]['active']]
+    if active_aux:
+        gap_before.add(len(ch_items))
+        for num in active_aux:
+            ch_items.append(('aux', num, data['auxins'][num]))
+
+    active_fx = sorted(num for num, c in data['fxrtns'].items() if c['active'])
+    if active_fx:
+        gap_before.add(len(ch_items))
+        for num in active_fx:
+            ch_items.append(('fx', num, data['fxrtns'][num]))
 
     SVG_PAD    = 30
     ch_spacing = max(CH_H + 4, 24)
     bus_spacing = max(BUS_H + 6, 40)
 
-    # Channel Y positions
+    # Channel Y positions (with extra gap at section boundaries)
     ch_y = {}
+    y = SVG_PAD + CH_H // 2
     for i, (kind, num, _) in enumerate(ch_items):
-        ch_y[(kind, num)] = SVG_PAD + i * ch_spacing + CH_H // 2
+        if i in gap_before:
+            y += ch_spacing           # one extra slot of space between sections
+        ch_y[(kind, num)] = y
+        y += ch_spacing
 
     # Bus Y positions (centred on channel column height)
     bus_nums    = list(range(1, 17))
@@ -439,6 +487,35 @@ def gen_flow_svg(data):
                 f'</path>'
             )
 
+    # ── Edges: FX bus → (processor) → FX returns  (loop arcs) ───────────────
+    for fx_num, fx_info in sorted(data.get('fx_slots', {}).items()):
+        src_bus = decode_mix_source(fx_info.get('source_l', ''))
+        if not src_bus or src_bus not in bus_y: continue
+        rtn_l, rtn_r = 2*fx_num - 1, 2*fx_num
+        fy_l = ch_y.get(('fx', rtn_l))
+        fy_r = ch_y.get(('fx', rtn_r))
+        if fy_l is None and fy_r is None: continue
+        fy_mid = (fy_l + fy_r) // 2 if (fy_l and fy_r) else (fy_l or fy_r)
+        by = bus_y[src_bus]
+        # Arc: left edge of FX bus → swing left past channel column → FXRtn right edge
+        cx = CH_X + NODE_W_CH
+        path = f'M{BUS_X},{by} C{FX_LOOP_X},{by} {FX_LOOP_X},{fy_mid} {cx},{fy_mid}'
+        fx_type = fx_info.get('type_name', f'FX{fx_num}')
+        parts.append(
+            f'<path class="fe" d="{path}" fill="none" stroke="{FX_COLOR}" '
+            f'stroke-width="1.5" stroke-dasharray="5,3" opacity="0.85">'
+            f'<title>FX {fx_num} {FX_TYPE_NAMES.get(fx_type, fx_type)}: '
+            f'Bus {src_bus:02d} → FXRtn {rtn_l:02d}/{rtn_r:02d}</title>'
+            f'</path>'
+        )
+        # Rotated type label on the arc's vertical segment
+        lx, ly = FX_LOOP_X + 9, (by + fy_mid) // 2
+        parts.append(
+            f'<text x="{lx}" y="{ly}" fill="{FX_COLOR}" font-size="8.5" font-weight="700" '
+            f'text-anchor="middle" transform="rotate(-90,{lx},{ly})">'
+            f'FX{fx_num} {fx_type}</text>'
+        )
+
     # ── Edges: bus → matrix ───────────────────────────────────────────────────
     for bn in bus_nums:
         b = buses.get(bn, {})
@@ -508,20 +585,27 @@ def gen_flow_svg(data):
                 f'</path>'
             )
 
-    # ── Channel nodes ─────────────────────────────────────────────────────────
+    # ── Channel / AuxIn / FXRtn nodes ────────────────────────────────────────
     for kind, num, c in ch_items:
         cy = ch_y[(kind, num)]
         dcas_list = c['dcas']
-        primary_dca = dcas_list[0] if dcas_list else 0
-        bg = DCA_COLORS.get(primary_dca, '#cbd5e1')
-        fg = DCA_TEXT.get(primary_dca, '#1e293b')
-        dca_cls = ' '.join(f'dca-{d}' for d in dcas_list) if dcas_list else 'dca-0'
-        label = f'{"" if kind=="ch" else "⎙ "}{num:02d} {c["name"]}'
+        if kind == 'fx':
+            fx_slot = (num + 1) // 2
+            fx_type = data['fx_slots'].get(fx_slot, {}).get('type_name', '')
+            bg, fg  = FX_COLOR, '#fff'
+            label   = f'↩ FX{fx_slot} {"L" if num%2==1 else "R"} ({fx_type})'
+            dca_cls = 'dca-0'
+        else:
+            primary_dca = dcas_list[0] if dcas_list else 0
+            bg  = DCA_COLORS.get(primary_dca, '#cbd5e1')
+            fg  = DCA_TEXT.get(primary_dca, '#1e293b')
+            dca_cls = ' '.join(f'dca-{d}' for d in dcas_list) if dcas_list else 'dca-0'
+            label   = f'{"" if kind=="ch" else "⎙ "}{num:02d} {c["name"]}'
         parts.append(
             f'<g class="fn {dca_cls}" data-dcas=\'{json.dumps(dcas_list)}\'>'
             f'<rect x="{CH_X}" y="{cy-CH_H//2}" width="{NODE_W_CH}" height="{CH_H}" '
             f'rx="3" fill="{bg}"/>'
-            f'<text x="{CH_X+6}" y="{cy+4}" fill="{fg}" font-size="11" font-weight="600">{label}</text>'
+            f'<text x="{CH_X+6}" y="{cy+4}" fill="{fg}" font-size="10" font-weight="600">{label}</text>'
             f'</g>'
         )
 
@@ -587,7 +671,7 @@ def gen_flow_svg(data):
                 f'fill="#475569" font-size="9" font-weight="700" letter-spacing=".06em">'
                 f'{text}</text>')
 
-    parts.append(col_label(CH_X,  NODE_W_CH,  'CHANNELS'))
+    parts.append(col_label(CH_X,  NODE_W_CH,  'CHANNELS / FX RETURNS'))
     parts.append(col_label(BUS_X, NODE_W_BUS, 'MIX BUSES'))
     parts.append(col_label(MTX_X, NODE_W_MTX, 'MATRIX'))
     parts.append(col_label(OUT_X, NODE_W_OUT, 'XLR OUTPUTS'))
@@ -654,6 +738,78 @@ def gen_matrix_routing_table(data):
         rows.append(row)
 
     rows.append('</table>')
+    return '\n'.join(rows)
+
+
+# ── FX summary table ──────────────────────────────────────────────────────────
+
+def gen_fx_summary_table(data):
+    fx_slots = data.get('fx_slots', {})
+    buses    = data['buses']
+    fxrtns   = data['fxrtns']
+
+    active = []
+    for num in sorted(fx_slots):
+        slot  = fx_slots[num]
+        rtn_l = fxrtns.get(2*num - 1, {})
+        rtn_r = fxrtns.get(2*num,     {})
+        if rtn_l.get('active') or rtn_r.get('active'):
+            active.append((num, slot, rtn_l, rtn_r))
+
+    if not active:
+        return '<p style="color:#64748b;font-size:.85rem">No active FX return loops found.</p>'
+
+    rows = ['<table class="out-table"><thead><tr>'
+            '<th>Slot</th><th>Type</th><th>Source Bus</th>'
+            '<th>Returns</th><th>Feeds Into</th>'
+            '</tr></thead><tbody>']
+
+    for num, slot, rtn_l, rtn_r in active:
+        fx_type   = slot.get('type_name', '')
+        type_name = FX_TYPE_NAMES.get(fx_type, fx_type) if fx_type else '—'
+        src_bus_n = decode_mix_source(slot.get('source_l', ''))
+        if src_bus_n:
+            b = buses.get(src_bus_n, {})
+            src_label = f'{src_bus_n:02d} {b.get("name","")}'
+        else:
+            src_label = slot.get('source_l') or '—'
+
+        rtn_nums = f'{2*num-1:02d} / {2*num:02d}'
+
+        # Aggregate destination buses from both L and R returns
+        dest = {}
+        for rtn in (rtn_l, rtn_r):
+            for bn, send in rtn.get('sends', {}).items():
+                db = send.get('db')
+                if db is not None:
+                    dest[bn] = max(dest.get(bn, -999), db)
+
+        if dest:
+            chips = []
+            for bn in sorted(dest):
+                b  = buses.get(bn, {})
+                bt = bus_type(bn)
+                bg = BUS_TYPE_COLOR[bt]
+                chips.append(
+                    f'<span style="background:{bg};color:#fff;padding:1px 6px;'
+                    f'border-radius:3px;font-size:.78em;margin-right:3px">'
+                    f'{bn:02d} {b.get("name","")} ({fmt_db(dest[bn])} dB)</span>'
+                )
+            dest_html = ''.join(chips)
+        else:
+            dest_html = '—'
+
+        rows.append(
+            f'<tr>'
+            f'<td class="out-num">FX {num}</td>'
+            f'<td><strong>{type_name}</strong></td>'
+            f'<td style="font-family:monospace">{src_label}</td>'
+            f'<td style="font-family:monospace">FXRtn {rtn_nums}</td>'
+            f'<td>{dest_html}</td>'
+            f'</tr>'
+        )
+
+    rows.append('</tbody></table>')
     return '\n'.join(rows)
 
 
@@ -822,6 +978,7 @@ def gen_html(data):
     flow     = gen_flow_svg(data)
     outs     = gen_outputs_table(data)
     mtx_tbl  = gen_matrix_routing_table(data)
+    fx_tbl   = gen_fx_summary_table(data)
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -854,6 +1011,8 @@ def gen_html(data):
   {outs}
   <h2 style="margin-top:28px;font-size:.9rem;color:#94a3b8;font-weight:700">BUS → MATRIX SENDS</h2>
   {mtx_tbl}
+  <h2 style="margin-top:28px;font-size:.9rem;color:#94a3b8;font-weight:700">FX LOOPS</h2>
+  {fx_tbl}
 </div>
 
 <div id="view-flow" class="view">
