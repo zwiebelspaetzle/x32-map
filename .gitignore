@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Generated HTML output
+*.html
+
+# macOS
+.DS_Store
+
+# Claude Code local skills (boilerplate, not project-specific)
+.claude/
