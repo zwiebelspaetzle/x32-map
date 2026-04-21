@@ -40,14 +40,14 @@ def tokenize(line):
 # ── Scene parser ──────────────────────────────────────────────────────────────
 
 def new_ch(num, prefix='CH'):
-    return {'name': f'{prefix}{num:02d}', 'fader_on': True, 'fader_db': 0.0,
+    return {'name': f'{prefix}{num:02d}', 'color': 'WH', 'fader_on': True, 'fader_db': 0.0,
             'sends': {}, 'dcas': [], 'active': False}
 
 def parse_scene(path):
     data = {
         'scene_name': 'X32', 'channels': {}, 'auxins': {}, 'fxrtns': {},
         'buses': {}, 'matrices': {},
-        'main_st': {'name': 'Main L/R', 'fader_on': True, 'fader_db': 0.0, 'sends_to_matrix': {}},
+        'main_st': {'name': 'Main L/R', 'color': 'WH', 'fader_on': True, 'fader_db': 0.0, 'sends_to_matrix': {}},
         'dcas': {}, 'outputs': {}, 'p16_outputs': {}, 'aux_outputs': {}, 'routing_in': [],
         'fx_slots': {},   # 1-8: {type_name, source_l, source_r}
     }
@@ -57,16 +57,16 @@ def parse_scene(path):
         return d[num]
     def bus(num):
         if num not in data['buses']:
-            data['buses'][num] = {'name': f'Bus {num:02d}', 'fader_on': True,
+            data['buses'][num] = {'name': f'Bus {num:02d}', 'color': 'WH', 'fader_on': True,
                                   'fader_db': 0.0, 'sends_to_matrix': {}}
         return data['buses'][num]
     def mtx(num):
         if num not in data['matrices']:
-            data['matrices'][num] = {'name': f'Mtx {num:02d}', 'fader_on': True, 'fader_db': 0.0}
+            data['matrices'][num] = {'name': f'Mtx {num:02d}', 'color': 'WH', 'fader_on': True, 'fader_db': 0.0}
         return data['matrices'][num]
     def dca(num):
         if num not in data['dcas']:
-            data['dcas'][num] = {'name': f'DCA {num}', 'fader_on': True, 'fader_db': 0.0}
+            data['dcas'][num] = {'name': f'DCA {num}', 'color': 'WH', 'fader_on': True, 'fader_db': 0.0}
         return data['dcas'][num]
 
     PATS = [
@@ -113,6 +113,7 @@ def parse_scene(path):
             if tag == 'ch_cfg':
                 c = ch(data['channels'], int(g[0]))
                 if tok: c['name'] = html.escape(tok[0].strip('"')) or c['name']
+                if len(tok) >= 3: c['color'] = tok[2]
             elif tag == 'ch_mix':
                 c = ch(data['channels'], int(g[0]))
                 if len(tok) >= 2: c['fader_on'] = tok[0]=='ON'; c['fader_db'] = parse_db(tok[1])
@@ -129,6 +130,7 @@ def parse_scene(path):
             elif tag == 'ax_cfg':
                 c = ch(data['auxins'], int(g[0]), 'AuxIn')
                 if tok: c['name'] = html.escape(tok[0].strip('"')) or c['name']
+                if len(tok) >= 3: c['color'] = tok[2]
             elif tag == 'ax_send':
                 c = ch(data['auxins'], int(g[0]), 'AuxIn'); bnum = int(g[1])
                 if len(tok) >= 2:
@@ -141,6 +143,7 @@ def parse_scene(path):
             elif tag == 'fx_cfg':
                 c = ch(data['fxrtns'], int(g[0]), 'FXRtn')
                 if tok: c['name'] = html.escape(tok[0].strip('"')) or c['name']
+                if len(tok) >= 3: c['color'] = tok[2]
             elif tag == 'fx_send':
                 c = ch(data['fxrtns'], int(g[0]), 'FXRtn'); bnum = int(g[1])
                 if len(tok) >= 2:
@@ -150,6 +153,7 @@ def parse_scene(path):
             elif tag == 'bus_cfg':
                 b = bus(int(g[0]))
                 if tok: b['name'] = html.escape(tok[0].strip('"')) or b['name']
+                if len(tok) >= 3: b['color'] = tok[2]
             elif tag == 'bus_mix':
                 b = bus(int(g[0]))
                 if len(tok) >= 2: b['fader_on'] = tok[0]=='ON'; b['fader_db'] = parse_db(tok[1])
@@ -161,11 +165,13 @@ def parse_scene(path):
             elif tag == 'mtx_cfg':
                 mt = mtx(int(g[0]))
                 if tok: mt['name'] = html.escape(tok[0].strip('"')) or mt['name']
+                if len(tok) >= 3: mt['color'] = tok[2]
             elif tag == 'mtx_mix':
                 mt = mtx(int(g[0]))
                 if len(tok) >= 2: mt['fader_on'] = tok[0]=='ON'; mt['fader_db'] = parse_db(tok[1])
             elif tag == 'mst_cfg':
                 if tok: data['main_st']['name'] = html.escape(tok[0].strip('"')) or 'Main L/R'
+                if len(tok) >= 3: data['main_st']['color'] = tok[2]
             elif tag == 'mst_mix':
                 if len(tok) >= 2:
                     data['main_st']['fader_on'] = tok[0]=='ON'
@@ -178,6 +184,7 @@ def parse_scene(path):
             elif tag == 'dca_cfg':
                 d = dca(int(g[0]))
                 if tok: d['name'] = html.escape(tok[0].strip('"')) or d['name']
+                if len(tok) >= 3: d['color'] = tok[2]
             elif tag == 'dca_fdr':
                 d = dca(int(g[0]))
                 if len(tok) >= 2: d['fader_on'] = tok[0]=='ON'; d['fader_db'] = parse_db(tok[1])
@@ -227,14 +234,21 @@ def level_color(db):
     if db >= -70:        return ('#e2e8f0', '#475569')
     return                      ('#f8fafc', '#94a3b8')
 
-DCA_COLORS = {
-    1: '#3b82f6', 2: '#ec4899', 3: '#a855f7', 4: '#22c55e',
-    5: '#f59e0b', 6: '#6b7280', 7: '#14b8a6', 8: '#f97316',
+X32_COLORS = {
+    'OFF':  ('#374151', '#d1d5db'), 'OFFi': ('#1e293b', '#9ca3af'),
+    'RD':   ('#dc2626', '#fff'),    'RDi':  ('#1e293b', '#f87171'),
+    'GN':   ('#16a34a', '#fff'),    'GNi':  ('#1e293b', '#4ade80'),
+    'YE':   ('#b45309', '#fff'),    'YEi':  ('#1e293b', '#fbbf24'),
+    'BL':   ('#1d4ed8', '#fff'),    'BLi':  ('#1e293b', '#60a5fa'),
+    'MG':   ('#7c3aed', '#fff'),    'MGi':  ('#1e293b', '#c084fc'),
+    'CY':   ('#0e7490', '#fff'),    'CYi':  ('#1e293b', '#22d3ee'),
+    'WH':   ('#e2e8f0', '#1e293b'), 'WHi':  ('#1e293b', '#e2e8f0'),
 }
-DCA_TEXT = {
-    1: '#fff', 2: '#fff', 3: '#fff', 4: '#052e16',
-    5: '#fff', 6: '#fff', 7: '#fff', 8: '#fff',
-}
+
+def scribble_colors(code):
+    """Return (bg_hex, fg_hex) for an X32 color code such as 'CYi' or 'RD'."""
+    return X32_COLORS.get(code or 'WH', ('#475569', '#fff'))
+
 BUS_TYPE_COLOR = {
     'foh':  '#3b82f6',
     'mon':  '#22c55e',
@@ -298,23 +312,21 @@ def gen_matrix_table(data):
     # Header row
     header = '<tr><th class="mat-corner">CH / Bus</th>'
     for bn in bus_nums:
-        bt = bus_type(bn)
-        bname = buses.get(bn, {}).get('name', f'Bus {bn:02d}')
-        color = BUS_TYPE_COLOR[bt]
-        header += f'<th class="mat-hdr bus-{bt}" style="background:{color};color:#fff" title="{bname}">'
+        b = buses.get(bn, {})
+        bname = b.get('name', f'Bus {bn:02d}')
+        bg, fg = scribble_colors(b.get('color', 'WH'))
+        header += f'<th class="mat-hdr" style="background:{bg};color:{fg}" title="{bname}">'
         header += f'<span class="bus-num">{bn:02d}</span><br><span class="bus-name">{bname}</span></th>'
     header += '</tr>'
     rows.append(header)
 
     def channel_row(num, c, section):
         dcas_list = c['dcas']
-        primary_dca = dcas_list[0] if dcas_list else 0
-        dca_color = DCA_COLORS.get(primary_dca, '#e2e8f0')
-        dca_text  = DCA_TEXT.get(primary_dca, '#1e293b')
+        bg, fg = scribble_colors(c.get('color', 'WH'))
         label = f'{num:02d} {c["name"]}'
         row = (f'<tr class="ch-row" data-dcas=\'{json.dumps(dcas_list)}\' '
                f'data-section="{section}">')
-        row += (f'<td class="ch-label" style="background:{dca_color};color:{dca_text}" '
+        row += (f'<td class="ch-label" style="background:{bg};color:{fg}" '
                 f'title="DCA: {", ".join(str(d) for d in dcas_list) or "—"}">'
                 f'{label}</td>')
         for bn in bus_nums:
@@ -344,9 +356,10 @@ def gen_matrix_table(data):
             label = 'Ungrouped channels'
             color = '#475569'
         else:
-            dname = dcas.get(dca_num, {}).get('name', f'DCA {dca_num}')
+            d = dcas.get(dca_num, {})
+            dname = d.get('name', f'DCA {dca_num}')
             label = f'DCA {dca_num}: {dname}'
-            color = DCA_COLORS.get(dca_num, '#475569')
+            color, _ = scribble_colors(d.get('color', 'WH'))
         rows.append(section_header(label, color))
         for num, c in items:
             rows.append(channel_row(num, c, f'dca{dca_num}'))
@@ -596,9 +609,7 @@ def gen_flow_svg(data):
             label   = f'↩ FX{fx_slot} {"L" if num%2==1 else "R"} ({fx_type})'
             dca_cls = 'dca-0'
         else:
-            primary_dca = dcas_list[0] if dcas_list else 0
-            bg  = DCA_COLORS.get(primary_dca, '#cbd5e1')
-            fg  = DCA_TEXT.get(primary_dca, '#1e293b')
+            bg, fg  = scribble_colors(c.get('color', 'WH'))
             dca_cls = ' '.join(f'dca-{d}' for d in dcas_list) if dcas_list else 'dca-0'
             label   = f'{"" if kind=="ch" else "⎙ "}{num:02d} {c["name"]}'
         parts.append(
@@ -614,21 +625,22 @@ def gen_flow_svg(data):
         by = bus_y[bn]
         b = buses.get(bn, {})
         label = f'{bn:02d} {b.get("name", f"Bus {bn:02d}")}'
-        bg = BUS_TYPE_COLOR[bus_type(bn)]
+        bg, fg = scribble_colors(b.get('color', 'WH'))
         parts.append(
             f'<g class="fn">'
             f'<rect x="{BUS_X}" y="{by-BUS_H//2}" width="{NODE_W_BUS}" height="{BUS_H}" '
             f'rx="3" fill="{bg}"/>'
-            f'<text x="{BUS_X+6}" y="{by+4}" fill="#fff" font-size="11" font-weight="600">{label}</text>'
+            f'<text x="{BUS_X+6}" y="{by+4}" fill="{fg}" font-size="11" font-weight="600">{label}</text>'
             f'</g>'
         )
 
     # ── Main L/R node ─────────────────────────────────────────────────────────
+    ms_bg, ms_fg = scribble_colors(ms.get('color', 'WH'))
     parts.append(
         f'<g class="fn">'
         f'<rect x="{BUS_X}" y="{main_y-BUS_H//2}" width="{NODE_W_BUS}" height="{BUS_H}" '
-        f'rx="3" fill="#475569"/>'
-        f'<text x="{BUS_X+6}" y="{main_y+4}" fill="#fff" font-size="11" font-weight="600">'
+        f'rx="3" fill="{ms_bg}"/>'
+        f'<text x="{BUS_X+6}" y="{main_y+4}" fill="{ms_fg}" font-size="11" font-weight="600">'
         f'{ms["name"]}</text>'
         f'</g>'
     )
@@ -717,15 +729,13 @@ def gen_matrix_routing_table(data):
 
     for src_type, src_num, src in sources:
         if src_type == 'bus':
-            bt = bus_type(src_num)
-            bg = BUS_TYPE_COLOR[bt]
             label = f'{src_num:02d} {src["name"]}'
         else:
-            bg = '#475569'
             label = src['name']
+        bg, fg = scribble_colors(src.get('color', 'WH'))
 
         row = (f'<tr class="ch-row" data-dcas="[]">'
-               f'<td class="ch-label" style="background:{bg};color:#fff">{label}</td>')
+               f'<td class="ch-label" style="background:{bg};color:{fg}">{label}</td>')
         for mn in mtx_nums:
             send = src['sends_to_matrix'].get(mn, {})
             db   = send.get('db')
@@ -949,8 +959,7 @@ def gen_html(data):
     dca_chips = '<label class="head">DCA:</label>'
     for num in sorted(dcas):
         d = dcas[num]
-        bg = DCA_COLORS.get(num, '#475569')
-        fg = DCA_TEXT.get(num, '#fff')
+        bg, fg = scribble_colors(d.get('color', 'WH'))
         dca_chips += (
             f'<label class="dca-chip" style="background:{bg};color:{fg}">'
             f'<input type="checkbox" class="dca-cb" value="{num}"> {d["name"] or f"DCA {num}"}'
@@ -985,12 +994,12 @@ def gen_html(data):
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>X32 Routing — {scene}</title>
+<title>X32 Map — {scene}</title>
 <style>{CSS}</style>
 </head>
 <body>
 <div class="header">
-  <h1>X32 Routing Diagram — {scene}</h1>
+  <h1>X32 Map — {scene}</h1>
   <div class="controls">
     <div class="view-toggle">
       <button id="btn-matrix" class="active">Matrix View</button>
