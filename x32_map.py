@@ -41,7 +41,8 @@ def tokenize(line):
 
 def new_ch(num, prefix='CH'):
     return {'name': f'{prefix}{num:02d}', 'color': 'WH', 'fader_on': True, 'fader_db': 0.0,
-            'sends': {}, 'dcas': [], 'active': False}
+            'sends': {}, 'dcas': [], 'active': False,
+            'insert': {'on': False, 'pos': 'PRE', 'point': 0}}
 
 def parse_scene(path):
     data = {
@@ -58,7 +59,8 @@ def parse_scene(path):
     def bus(num):
         if num not in data['buses']:
             data['buses'][num] = {'name': f'Bus {num:02d}', 'color': 'WH', 'fader_on': True,
-                                  'fader_db': 0.0, 'sends_to_matrix': {}}
+                                  'fader_db': 0.0, 'sends_to_matrix': {},
+                                  'insert': {'on': False, 'pos': 'PRE', 'point': 0}}
         return data['buses'][num]
     def mtx(num):
         if num not in data['matrices']:
@@ -73,6 +75,7 @@ def parse_scene(path):
         (re.compile(r'^/ch/(\d+)/config$'),       'ch_cfg'),
         (re.compile(r'^/ch/(\d+)/mix$'),           'ch_mix'),
         (re.compile(r'^/ch/(\d+)/mix/(\d+)$'),     'ch_send'),
+        (re.compile(r'^/ch/(\d+)/insert$'),         'ch_ins'),
         (re.compile(r'^/ch/(\d+)/grp$'),           'ch_grp'),
         (re.compile(r'^/auxin/(\d+)/config$'),      'ax_cfg'),
         (re.compile(r'^/auxin/(\d+)/mix/(\d+)$'),  'ax_send'),
@@ -81,6 +84,7 @@ def parse_scene(path):
         (re.compile(r'^/fxrtn/(\d+)/mix/(\d+)$'),  'fx_send'),
         (re.compile(r'^/bus/(\d+)/config$'),        'bus_cfg'),
         (re.compile(r'^/bus/(\d+)/mix$'),           'bus_mix'),
+        (re.compile(r'^/bus/(\d+)/insert$'),         'bus_ins'),
         (re.compile(r'^/bus/(\d+)/mix/(\d+)$'),     'bus_send'),
         (re.compile(r'^/mtx/(\d+)/config$'),        'mtx_cfg'),
         (re.compile(r'^/mtx/(\d+)/mix$'),           'mtx_mix'),
@@ -127,6 +131,12 @@ def parse_scene(path):
             elif tag == 'ch_grp':
                 c = ch(data['channels'], int(g[0]))
                 if tok: c['dcas'] = decode_dca_mask(tok[0])
+            elif tag == 'ch_ins':
+                c = ch(data['channels'], int(g[0]))
+                if len(tok) >= 3:
+                    try: pt = int(tok[2])
+                    except ValueError: pt = 0
+                    c['insert'] = {'on': tok[0]=='ON', 'pos': tok[1], 'point': pt}
             elif tag == 'ax_cfg':
                 c = ch(data['auxins'], int(g[0]), 'AuxIn')
                 if tok: c['name'] = html.escape(tok[0].strip('"')) or c['name']
@@ -150,6 +160,12 @@ def parse_scene(path):
                     db = parse_db(tok[1])
                     c['sends'][bnum] = {'enabled': tok[0]=='ON', 'db': db, 'pre': None}
                     if db is not None: c['active'] = True
+            elif tag == 'bus_ins':
+                b = bus(int(g[0]))
+                if len(tok) >= 3:
+                    try: pt = int(tok[2])
+                    except ValueError: pt = 0
+                    b['insert'] = {'on': tok[0]=='ON', 'pos': tok[1], 'point': pt}
             elif tag == 'bus_cfg':
                 b = bus(int(g[0]))
                 if tok: b['name'] = html.escape(tok[0].strip('"')) or b['name']
@@ -287,6 +303,19 @@ def decode_mix_source(src_str):
     m = re.match(r'MIX(\d+)', src_str or '')
     return int(m.group(1)) if m else None
 
+def decode_insert_point(point):
+    """X32 insert patch destination index → human label."""
+    p = int(point)
+    if p == 0:           return 'Off'
+    if 1 <= p <= 16:     return f'OUT {p:02d}'
+    if 17 <= p <= 22:    return f'AES {p-16:02d}'
+    if 23 <= p <= 30:    return f'P16 {p-22:02d}'
+    if 31 <= p <= 36:    return f'AUX {p-30:02d}'
+    if 37 <= p <= 44:
+        fx, side = divmod(p - 37, 2)
+        return f'FX{fx+1}S {"L" if side==0 else "R"}'
+    return f'Pt {p}'
+
 
 # ── Matrix table ──────────────────────────────────────────────────────────────
 
@@ -311,6 +340,8 @@ def gen_matrix_table(data):
 
     # Header row
     header = '<tr><th class="mat-corner">CH / Bus</th>'
+    header += '<th class="mat-hdr col-fader" style="min-width:52px">Fader</th>'
+    header += '<th class="mat-hdr col-insert" style="min-width:80px">Insert</th>'
     for bn in bus_nums:
         b = buses.get(bn, {})
         bname = b.get('name', f'Bus {bn:02d}')
@@ -329,6 +360,28 @@ def gen_matrix_table(data):
         row += (f'<td class="ch-label" style="background:{bg};color:{fg}" '
                 f'title="DCA: {", ".join(str(d) for d in dcas_list) or "—"}">'
                 f'{label}</td>')
+        # Fader cell
+        fdr_db = c.get('fader_db')
+        fdr_on = c.get('fader_on', True)
+        if not fdr_on:
+            row += '<td class="mat-cell col-fader" style="background:#374151;color:#9ca3af">OFF</td>'
+        else:
+            fdr_bg, fdr_fg = level_color(fdr_db)
+            row += (f'<td class="mat-cell col-fader" style="background:{fdr_bg};color:{fdr_fg}">'
+                    f'{fmt_db(fdr_db)}</td>')
+        # Insert cell
+        ins = c.get('insert', {})
+        if ins.get('on'):
+            ins_pos = ins.get('pos', 'PRE')
+            if ins.get('point', 0) != 0:
+                ins_label = decode_insert_point(ins['point'])
+                row += (f'<td class="mat-cell col-insert" style="font-size:.7em;white-space:nowrap">'
+                        f'{ins_label}<sup style="color:#6366f1;margin-left:2px">{ins_pos}</sup></td>')
+            else:
+                row += (f'<td class="mat-cell col-insert" style="font-size:.7em;color:#f97316">'
+                        f'ON/{ins_pos}</td>')
+        else:
+            row += '<td class="mat-cell col-insert" style="color:#475569">—</td>'
         for bn in bus_nums:
             send = c['sends'].get(bn, {})
             db   = send.get('db')
@@ -344,7 +397,7 @@ def gen_matrix_table(data):
         return row
 
     def section_header(label, color='#334155'):
-        return (f'<tr class="sec-hdr"><td colspan="{len(bus_nums)+1}" '
+        return (f'<tr class="sec-hdr"><td colspan="{len(bus_nums)+3}" '
                 f'style="background:{color};color:#fff;padding:4px 8px;font-weight:700;'
                 f'font-size:0.8em;text-transform:uppercase;letter-spacing:.05em">{label}</td></tr>')
 
@@ -388,6 +441,7 @@ def gen_flow_svg(data):
     matrices = data['matrices']
 
     FX_LOOP_X                          = 30   # leftmost x for FX return arc
+    INSERT_LOOP_W                      = 55   # how far left insert arcs bow
     CH_X, BUS_X, MTX_X, OUT_X         = 150, 460, 760, 1060
     NODE_W_CH, NODE_W_BUS              = 140, 140
     NODE_W_MTX, NODE_W_OUT             = 130, 165
@@ -619,6 +673,46 @@ def gen_flow_svg(data):
             f'<text x="{CH_X+6}" y="{cy+4}" fill="{fg}" font-size="10" font-weight="600">{label}</text>'
             f'</g>'
         )
+        # ── Insert overlays ───────────────────────────────────────────────────
+        if kind != 'fx':
+            ins = c.get('insert', {})
+            if ins.get('on'):
+                ins_pos    = ins.get('pos', 'PRE')
+                ins_pt     = ins.get('point', 0)
+                ins_routed = ins_pt != 0
+                ins_color  = '#f97316' if ins_routed else '#ef4444'
+                ins_dest   = decode_insert_point(ins_pt) if ins_routed else '?'
+                tip = f'Insert: {ins_dest} ({ins_pos})'
+
+                # Badge: small coloured tab on left edge of channel rect
+                parts.append(
+                    f'<g class="fn insert-badge {dca_cls}" data-dcas=\'{json.dumps(dcas_list)}\'>'
+                    f'<rect x="{CH_X}" y="{cy-CH_H//2}" width="5" height="{CH_H}" '
+                    f'rx="2" fill="{ins_color}" opacity="0.9"/>'
+                    f'<title>{tip}</title>'
+                    f'</g>'
+                )
+
+                # Arc: teardrop self-loop bowing left of channel node
+                lx    = CH_X - INSERT_LOOP_W
+                top_y = cy - 5
+                bot_y = cy + 5
+                dash  = '' if ins_routed else ' stroke-dasharray="4,3"'
+                arc_path = (f'M{CH_X},{top_y} C{lx},{top_y} {lx},{bot_y} {CH_X},{bot_y}')
+                lbl_x = lx + 10
+                lbl_y = cy
+                parts.append(
+                    f'<g class="fn insert-arc {dca_cls}" data-dcas=\'{json.dumps(dcas_list)}\'>'
+                    f'<path d="{arc_path}" fill="none" stroke="{ins_color}" '
+                    f'stroke-width="1.8"{dash} opacity="0.9">'
+                    f'<title>{tip}</title>'
+                    f'</path>'
+                    f'<text x="{lbl_x}" y="{lbl_y}" fill="{ins_color}" font-size="7.5" '
+                    f'font-weight="700" text-anchor="middle" '
+                    f'transform="rotate(-90,{lbl_x},{lbl_y})">'
+                    f'{ins_dest} {ins_pos}</text>'
+                    f'</g>'
+                )
 
     # ── Bus nodes ─────────────────────────────────────────────────────────────
     for bn in bus_nums:
@@ -901,6 +995,24 @@ body { font-family: system-ui, -apple-system, sans-serif; background: #0f172a; c
 .legend { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 0; font-size: 0.75rem; }
 .legend-item { display: flex; align-items: center; gap: 4px; }
 .legend-swatch { width: 16px; height: 16px; border-radius: 3px; }
+
+/* Optional columns */
+.col-fader, .col-insert { display: none; }
+.show-fader .col-fader { display: table-cell; }
+.show-insert .col-insert { display: table-cell; }
+.col-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px;
+  border-radius: 12px; font-size: 0.78rem; cursor: pointer; user-select: none;
+  background: #1e293b; border: 1px solid #475569; color: #94a3b8; }
+.col-toggle input { width: 12px; height: 12px; cursor: pointer; }
+
+/* Insert display in signal flow — badge mode is default */
+.insert-arc  { display: none; }
+.insert-badge { display: block; }
+.flow-wrap.show-insert-arc  .insert-arc  { display: block; }
+.flow-wrap.show-insert-arc  .insert-badge { display: none; }
+.insert-mode-btn { padding: 4px 10px; border: 1px solid #475569; background: #1e293b;
+  color: #94a3b8; cursor: pointer; border-radius: 4px; font-size: 0.82rem; }
+.insert-mode-btn.active { background: #f97316; border-color: #f97316; color: #fff; }
 """
 
 JS = """
@@ -937,6 +1049,20 @@ function applyFilters() {
     });
   });
 }
+
+document.getElementById('toggle-fader').addEventListener('change', e => {
+  document.querySelectorAll('.routing-matrix').forEach(t => t.classList.toggle('show-fader', e.target.checked));
+});
+document.getElementById('toggle-insert').addEventListener('change', e => {
+  document.querySelectorAll('.routing-matrix').forEach(t => t.classList.toggle('show-insert', e.target.checked));
+});
+
+const insModeBtns = document.querySelectorAll('.insert-mode-btn');
+insModeBtns.forEach(btn => btn.addEventListener('click', () => {
+  const mode = btn.dataset.mode;
+  document.querySelector('.flow-wrap').classList.toggle('show-insert-arc', mode === 'arc');
+  insModeBtns.forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+}));
 
 const slider = document.getElementById('level-slider');
 const levelSpan = document.getElementById('level-val');
@@ -1006,6 +1132,11 @@ def gen_html(data):
       <button id="btn-flow">Signal Flow</button>
     </div>
     <div class="dca-filters">{dca_chips}</div>
+    <div class="dca-filters">
+      <label class="head" style="color:#94a3b8;font-size:.8rem">Show:</label>
+      <label class="col-toggle"><input type="checkbox" id="toggle-fader"> Faders</label>
+      <label class="col-toggle"><input type="checkbox" id="toggle-insert"> Inserts</label>
+    </div>
     <div class="level-filter">
       Min level: <strong id="level-val">−∞</strong>
       <input type="range" id="level-slider" min="-90" max="0" value="-90" step="5">
@@ -1025,9 +1156,16 @@ def gen_html(data):
 </div>
 
 <div id="view-flow" class="view">
-  <p style="color:#64748b;font-size:.8rem;margin-bottom:8px">
-    Edges show active sends only (level &gt; −∞). Use DCA filter to highlight groups.
-  </p>
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+    <p style="color:#64748b;font-size:.8rem;margin:0">
+      Edges show active sends only. Use DCA filter to highlight groups.
+    </p>
+    <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
+      <span style="color:#94a3b8;font-size:.78rem">Inserts:</span>
+      <button class="insert-mode-btn active" data-mode="badge">Badge</button>
+      <button class="insert-mode-btn" data-mode="arc">Arc</button>
+    </div>
+  </div>
   <div class="flow-wrap">{flow}</div>
 </div>
 
