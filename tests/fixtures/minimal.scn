@@ -1,0 +1,10 @@
+#4.0# "Minimal" "" %000000000 1
+/ch/01/config "Kick" 1 RD 1
+/ch/01/mix ON +0.0 ON +0 OFF +0.0
+/ch/01/mix/01 ON -18.5 +0 PRE 0
+/ch/01/grp %00000001 %000000
+/bus/01/config "FOH L" 1 GN 1
+/bus/01/mix ON +0.0
+/dca/1 ON +0.0
+/dca/1/config "Drums" 65 RD
+/outputs/main/01 5 POST OFF

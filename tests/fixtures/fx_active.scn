@@ -1,0 +1,15 @@
+#4.0# "FX Active" "" %000000000 1
+/ch/01/config "Vocal" 1 CY 1
+/ch/01/mix ON +0.0 ON +0 OFF +0.0
+/ch/01/mix/01 ON -10.0 +0 POST 0
+/ch/01/mix/13 ON -20.0 +0 POST 0
+/bus/01/config "FOH" 1 GN 1
+/bus/01/mix ON +0.0
+/bus/13/config "FX Send" 1 MG 13
+/bus/13/mix ON +0.0
+/fxrtn/01/config "Reverb L" 1 WH 1
+/fxrtn/01/mix/01 ON -10.0
+/fxrtn/02/config "Reverb R" 1 WH 2
+/fxrtn/02/mix/01 ON -15.0
+/fx/1 HALL
+/fx/1/source MIX13 MIX13

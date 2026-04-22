@@ -1,0 +1,15 @@
+#4.0# "Multi DCA" "" %000000000 1
+/ch/01/config "Both DCAs" 1 RD 1
+/ch/01/mix ON +0.0 ON +0 OFF +0.0
+/ch/01/mix/01 ON -10.0 +0 POST 0
+/ch/01/grp %00000011 %000000
+/ch/02/config "No DCA" 1 GN 2
+/ch/02/mix ON +0.0 ON +0 OFF +0.0
+/ch/02/mix/01 ON -10.0 +0 POST 0
+/ch/02/grp %00000000 %000000
+/bus/01/config "Bus 01" 1 WH 1
+/bus/01/mix ON +0.0
+/dca/1 ON +0.0
+/dca/1/config "" 65 RD
+/dca/2 ON +0.0
+/dca/2/config "Vocals" 65 GN
