@@ -1,0 +1,7 @@
+#4.0# "Insert Routed" "" %000000000 1
+/ch/01/config "Lead Vox" 1 WH 1
+/ch/01/mix ON +0.0 ON +0 OFF +0.0
+/ch/01/mix/01 ON -10.0 +0 POST 0
+/ch/01/insert ON PRE 37
+/bus/01/config "Bus 01" 1 WH 1
+/bus/01/mix ON +0.0

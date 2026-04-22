@@ -1,0 +1,9 @@
+#4.0# "Test & Scene <2>" "" %000000000 1
+/ch/01/config "Kick & Snare" 1 WH 1
+/ch/01/mix ON +0.0 ON +0 OFF +0.0
+/ch/01/mix/01 ON -10.0 +0 POST 0
+/ch/02/config "" 1 WH 2
+/ch/02/mix ON +0.0 ON +0 OFF +0.0
+/ch/02/mix/01 ON -10.0 +0 POST 0
+/bus/01/config "Bus with spaces" 1 WH 1
+/bus/01/mix ON +0.0
